@@ -1,0 +1,5 @@
+{
+  "name": "OStv news",
+  "description": "A modern, AI-powered news reader that delivers real-time updates and summaries using Google Search.",
+  "requestFramePermissions": []
+}

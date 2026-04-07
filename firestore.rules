@@ -1,0 +1,115 @@
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// This security rules file assumes the following data structures:
+//
+// Collection: users
+// Document ID: {userId}
+// Fields:
+//   - uid: string (required, immutable) - The user's unique ID.
+//   - displayName: string (required) - The user's full name.
+//   - email: string (required, format: email) - The user's email address.
+//   - photoURL: string (optional, format: uri) - The user's profile picture URL.
+//   - role: string (required, enum: ['user', 'admin']) - The user's role.
+//   - createdAt: timestamp (required, immutable) - When the account was created.
+//
+// Collection: users/{userId}/bookmarks
+// Document ID: {bookmarkId}
+// Fields:
+//   - uid: string (required, immutable) - The ID of the user who bookmarked the article.
+//   - articleId: string (required, immutable) - A unique ID for the article.
+//   - title: string (required) - The article title.
+//   - url: string (required, format: uri) - The article URL.
+//   - source: string (required) - The news source.
+//   - category: string (optional) - The article category.
+//   - createdAt: timestamp (required, immutable) - When the article was bookmarked.
+//
+// ===============================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "michaeltetteh085@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidUrl(url) {
+      return url is string && (url.matches("^https://.*") || url.matches("^http://.*"));
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return hasRequiredFields(['uid', 'displayName', 'email', 'role']) &&
+             data.uid is string && data.uid.size() > 0 &&
+             data.displayName is string && data.displayName.size() > 0 && data.displayName.size() < 100 &&
+             isValidEmail(data.email) &&
+             data.role in ['user', 'admin'];
+    }
+
+    function isValidBookmark(data) {
+      return hasRequiredFields(['uid', 'articleId', 'title', 'url', 'source']) &&
+             data.uid is string && data.uid == request.auth.uid &&
+             data.articleId is string && data.articleId.size() > 0 &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 500 &&
+             isValidUrl(data.url) &&
+             data.source is string && data.source.size() > 0;
+    }
+
+    // ===============================================================
+    // Collection Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) && 
+                      ((isOwner(userId) && request.resource.data.role == 'user') || isAdmin());
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) && 
+                      ((isOwner(userId) && request.resource.data.role == resource.data.role) || isAdmin()) &&
+                      request.resource.data.uid == resource.data.uid;
+
+      match /bookmarks/{bookmarkId} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow create: if isOwner(userId) && isValidBookmark(request.resource.data);
+        allow update: if isOwner(userId) && isValidBookmark(request.resource.data) &&
+                        request.resource.data.articleId == resource.data.articleId;
+        allow delete: if isOwner(userId) || isAdmin();
+      }
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
