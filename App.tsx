@@ -185,6 +185,7 @@ export default function App() {
 }
 
 function OStvApp() {
+  const apiKey = import.meta.env.VITE_NEWS_API_KEY;
   const [news, setNews] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState("top");
